@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLLAPSE 0 - Post-Apocalyptic Hex World</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            overflow: hidden;
+        }
+
+        #login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0a0a0a;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #login-screen h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            color: #ff6b6b;
+            text-shadow: 0 0 10px #ff6b6b;
+        }
+
+        #login-screen input {
+            background: #1a1a1a;
+            border: 2px solid #00ff00;
+            color: #00ff00;
+            padding: 10px 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.2em;
+            margin: 10px;
+        }
+
+        #login-screen button {
+            background: #ff6b6b;
+            border: none;
+            color: #0a0a0a;
+            padding: 10px 30px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.2em;
+            cursor: pointer;
+            margin: 10px;
+        }
+
+        #login-screen button:hover {
+            background: #ff8787;
+        }
+
+        #game-container {
+            display: none;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-bottom: 2px solid #00ff00;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .hud-section {
+            display: flex;
+            gap: 30px;
+        }
+
+        .hud-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hud-label {
+            font-size: 0.8em;
+            color: #888;
+        }
+
+        .hud-value {
+            font-size: 1.2em;
+            color: #00ff00;
+            font-weight: bold;
+        }
+
+        .energy {
+            color: #ffd700 !important;
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 80px;
+            left: 0;
+            width: 100%;
+            height: calc(100% - 80px);
+            overflow: hidden;
+        }
+
+        #game-canvas {
+            background: #0f0f0f;
+            cursor: crosshair;
+        }
+
+        #info-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00ff00;
+            padding: 15px;
+            min-width: 250px;
+            display: none;
+        }
+
+        #info-panel h3 {
+            color: #ff6b6b;
+            margin-bottom: 10px;
+        }
+
+        #info-panel p {
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00ff00;
+            padding: 15px;
+        }
+
+        .legend h3 {
+            color: #ff6b6b;
+            margin-bottom: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+
+        .legend-icon {
+            width: 30px;
+            text-align: center;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="login-screen">
+        <h1>╔═══ COLLAPSE 0 ═══╗</h1>
+        <p style="margin-bottom: 20px;">Post-Apocalyptic Hex World</p>
+        <input type="text" id="username-input" placeholder="Enter Username" maxlength="20">
+        <button id="join-button">Join Game</button>
+    </div>
+
+    <div id="game-container">
+        <div id="hud">
+            <div class="hud-section">
+                <div class="hud-item">
+                    <span class="hud-label">USERNAME</span>
+                    <span class="hud-value" id="hud-username">---</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">ENERGY</span>
+                    <span class="hud-value energy" id="hud-energy">0</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">POSITION</span>
+                    <span class="hud-value" id="hud-position">0, 0</span>
+                </div>
+            </div>
+            <div class="hud-section">
+                <div class="hud-item">
+                    <span class="hud-label">STATUS</span>
+                    <span class="hud-value" id="hud-status">IDLE</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="canvas-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+
+        <div class="legend">
+            <h3>╔═══ LEGEND ═══╗</h3>
+            <div class="legend-item">
+                <span class="legend-icon" style="color: #00ff00;">●</span>
+                <span>You</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon" style="color: #4ECDC4;">●</span>
+                <span>Other Players</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon" style="color: #ffd700;">◆</span>
+                <span>Oil Deposits</span>
+            </div>
+        </div>
+
+        <div id="info-panel">
+            <h3>╔═══ INFO ═══╗</h3>
+            <div id="info-content"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
