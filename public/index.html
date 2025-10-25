@@ -294,6 +294,100 @@
             0%, 100% { box-shadow: 0 0 5px #00ff00; }
             50% { box-shadow: 0 0 20px #00ff00; }
         }
+
+        #build-panel {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.95);
+            border: 2px solid #00ff00;
+            padding: 15px;
+            width: 150px;
+            display: none;
+        }
+
+        #build-panel h3 {
+            color: #ff6b6b;
+            margin-bottom: 15px;
+            text-align: center;
+            font-size: 1em;
+        }
+
+        .build-card {
+            width: 120px;
+            height: 140px;
+            background: rgba(20, 20, 20, 0.9);
+            border: 3px solid #666;
+            position: relative;
+            cursor: not-allowed;
+            margin: 0 auto;
+            transition: all 0.3s;
+        }
+
+        .build-card.available {
+            border-color: #00ff00;
+            cursor: grab;
+            animation: cardPulse 2s infinite;
+        }
+
+        .build-card.available:hover {
+            border-color: #00ff00;
+            box-shadow: 0 0 20px #00ff00;
+            transform: scale(1.05);
+        }
+
+        .build-card.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+
+        @keyframes cardPulse {
+            0%, 100% { box-shadow: 0 0 5px #00ff00; }
+            50% { box-shadow: 0 0 15px #00ff00; }
+        }
+
+        .card-icon {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 3em;
+            color: #666;
+        }
+
+        .build-card.available .card-icon {
+            color: #ff0000;
+            text-shadow: 0 0 10px #ff0000;
+        }
+
+        .card-name {
+            position: absolute;
+            bottom: 35px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 0.9em;
+            color: #666;
+            font-weight: bold;
+        }
+
+        .build-card.available .card-name {
+            color: #00ff00;
+        }
+
+        .card-cost {
+            position: absolute;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .build-card.available .card-cost {
+            color: #ffd700;
+        }
     </style>
 </head>
 <body>
@@ -399,6 +493,15 @@
                 <div class="weapon-cooldown-bar">
                     <div class="weapon-cooldown-progress" id="laser-cooldown-progress"></div>
                 </div>
+            </div>
+        </div>
+
+        <div id="build-panel">
+            <h3>╔═ BUILD ═╗</h3>
+            <div class="build-card" id="tower-card" draggable="false">
+                <div class="card-icon">▲</div>
+                <div class="card-name">TOWER</div>
+                <div class="card-cost">⚡ 50</div>
             </div>
         </div>
     </div>

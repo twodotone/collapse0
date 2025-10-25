@@ -457,6 +457,70 @@ class GameState {
   }
 
   /**
+   * Build a tower at specified position
+   */
+  buildTower(playerId, position) {
+    const player = this.players.get(playerId);
+    if (!player) return { success: false, message: 'Player not found' };
+    
+    const buildCost = this.config.towers.buildCost;
+    const buildRadius = this.config.towers.buildRadius;
+    
+    // Check if player has enough energy
+    if (player.energy < buildCost) {
+      return { success: false, message: 'Not enough energy' };
+    }
+    
+    // Find player's team base
+    const playerBase = Array.from(this.bases.values()).find(b => b.team === player.team);
+    
+    // Check if within build range (4 hexes from player or base)
+    const distFromPlayer = this.hexGrid.distance(player.position, position);
+    const distFromBase = playerBase ? this.hexGrid.distance(playerBase.position, position) : Infinity;
+    
+    if (distFromPlayer > buildRadius && distFromBase > buildRadius) {
+      return { success: false, message: 'Too far from player or base' };
+    }
+    
+    // Check if hex is occupied
+    const isOccupied = 
+      Array.from(this.players.values()).some(p => p.position.q === position.q && p.position.r === position.r) ||
+      Array.from(this.towers.values()).some(t => t.position.q === position.q && t.position.r === position.r) ||
+      Array.from(this.landmarks.values()).some(l => l.position.q === position.q && l.position.r === position.r) ||
+      Array.from(this.bases.values()).some(b => b.position.q === position.q && b.position.r === position.r);
+    
+    if (isOccupied) {
+      return { success: false, message: 'Position occupied' };
+    }
+    
+    // Deduct energy
+    player.energy -= buildCost;
+    
+    // Create tower
+    const towerCfg = this.config.towers;
+    const tower = {
+      id: this.nextTowerId++,
+      position: { q: position.q, r: position.r },
+      hp: towerCfg.maxHp,
+      maxHp: towerCfg.maxHp,
+      attackRange: towerCfg.attackRange,
+      damage: towerCfg.damage,
+      attackSpeed: towerCfg.attackSpeed,
+      visionRange: towerCfg.visionRange,
+      target: null,
+      lastAttackTime: 0,
+      isDestroyed: false,
+      team: player.team, // Player-built towers belong to team
+      builtBy: player.username
+    };
+    
+    this.towers.set(tower.id, tower);
+    console.log(`${player.username} built tower ${tower.id} at (${position.q},${position.r}) for ${player.team} team`);
+    
+    return { success: true, message: 'Tower built!' };
+  }
+
+  /**
    * Calculate simple path between two hexes
    * Using linear interpolation for now
    */

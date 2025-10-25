@@ -44,6 +44,8 @@ const GameConfig = {
   towers: {
     perLandmark: 3,  // 3 towers defending the oil rig
     placementRadius: 3,  // How far from landmark to place towers
+    buildCost: 50,  // Energy cost to build a tower
+    buildRadius: 4,  // Can build within 4 hexes of base or player
     maxHp: 30,
     attackRange: 3,  // Hexes - reduced from 6
     damage: 10,  // High damage - very dangerous

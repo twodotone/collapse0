@@ -11,6 +11,11 @@ let hoveredHex = null;
 let screenShake = { x: 0, y: 0, intensity: 0 };
 let lastPlayerHp = 100;
 
+// Tower building state
+let isDraggingTower = false;
+let towerDragPreview = null; // {q, r} hex position
+let validPlacementZones = []; // Array of {q, r} hexes where tower can be placed
+
 // Hex rendering constants
 const HEX_SIZE = 25;
 const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE;
@@ -21,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupLogin();
     setupCanvas();
     setupSocketListeners();
+    setupBuildPanel();
 });
 
 function setupLogin() {
@@ -226,6 +232,9 @@ function updateHUD() {
     
     // Update weapon cooldowns
     updateWeaponUI();
+    
+    // Update tower build card availability
+    updateBuildPanel();
 }
 
 function updateWeaponUI() {
@@ -262,6 +271,101 @@ function updateWeaponUI() {
         const progress = Math.max(0, (7000 - laserWeapon.cooldownRemaining) / 7000 * 100);
         laserProgress.style.width = progress + '%';
     }
+}
+
+function setupBuildPanel() {
+    const towerCard = document.getElementById('tower-card');
+    
+    towerCard.addEventListener('mousedown', (e) => {
+        if (!gameState || !gameState.player) return;
+        
+        // Check if player has enough energy (50)
+        if (gameState.player.energy >= 50) {
+            isDraggingTower = true;
+            towerCard.classList.add('dragging');
+            calculateValidPlacementZones();
+            e.preventDefault();
+        }
+    });
+    
+    document.addEventListener('mouseup', (e) => {
+        if (isDraggingTower) {
+            // Try to place tower at current hover position
+            if (towerDragPreview && isValidPlacement(towerDragPreview)) {
+                socket.emit('buildTower', towerDragPreview);
+            }
+            
+            isDraggingTower = false;
+            towerDragPreview = null;
+            validPlacementZones = [];
+            towerCard.classList.remove('dragging');
+            render();
+        }
+    });
+}
+
+function updateBuildPanel() {
+    if (!gameState || !gameState.player) return;
+    
+    const buildPanel = document.getElementById('build-panel');
+    const towerCard = document.getElementById('tower-card');
+    
+    // Show build panel when game is active
+    buildPanel.style.display = 'block';
+    
+    // Update card availability based on energy
+    if (gameState.player.energy >= 50) {
+        towerCard.classList.add('available');
+        towerCard.setAttribute('draggable', 'true');
+    } else {
+        towerCard.classList.remove('available');
+        towerCard.setAttribute('draggable', 'false');
+    }
+}
+
+function calculateValidPlacementZones() {
+    validPlacementZones = [];
+    if (!gameState || !gameState.player) return;
+    
+    const buildRadius = 4;
+    const playerPos = gameState.player.position;
+    
+    // Find player's team base
+    const playerBase = gameState.bases?.find(b => b.team === gameState.player.team);
+    
+    // Check all hexes in range
+    for (let q = -10; q <= 10; q++) {
+        for (let r = -10; r <= 10; r++) {
+            const hex = { q, r };
+            
+            // Check if within 4 hexes of player OR player's base
+            const distFromPlayer = hexDistance(playerPos, hex);
+            const distFromBase = playerBase ? hexDistance(playerBase.position, hex) : Infinity;
+            
+            if (distFromPlayer <= buildRadius || distFromBase <= buildRadius) {
+                validPlacementZones.push(hex);
+            }
+        }
+    }
+}
+
+function isValidPlacement(hex) {
+    if (!gameState) return false;
+    
+    // Must be in valid placement zone
+    if (!validPlacementZones.some(v => v.q === hex.q && v.r === hex.r)) {
+        return false;
+    }
+    
+    // Can't place on occupied hexes (players, towers, landmarks, bases)
+    const isOccupied = 
+        gameState.visiblePlayers?.some(p => p.position.q === hex.q && p.position.r === hex.r) ||
+        (gameState.player?.position.q === hex.q && gameState.player?.position.r === hex.r) ||
+        gameState.towers?.some(t => t.position.q === hex.q && t.position.r === hex.r) ||
+        gameState.landmarks?.some(l => l.position.q === hex.q && l.position.r === hex.r) ||
+        gameState.bases?.some(b => b.position.q === hex.q && b.position.r === hex.r);
+    
+    return !isOccupied;
 }
 
 // Hex coordinate conversion
@@ -328,6 +432,12 @@ function handleMouseMove(e) {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         hoveredHex = pixelToHex(mouseX, mouseY);
+        
+        // Update tower drag preview
+        if (isDraggingTower) {
+            towerDragPreview = hoveredHex;
+        }
+        
         render();
     }
 }
@@ -487,8 +597,32 @@ function render() {
     }
     
     // Draw hovered hex
-    if (hoveredHex && !isDragging) {
+    if (hoveredHex && !isDragging && !isDraggingTower) {
         drawHexOutline(hoveredHex, '#ffffff', 2 / camera.zoom);
+    }
+    
+    // Draw tower placement zones and preview
+    if (isDraggingTower) {
+        // Draw valid placement zones
+        validPlacementZones.forEach(hex => {
+            const isValid = isValidPlacement(hex);
+            drawHex(hex, isValid ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)', true);
+            drawHexOutline(hex, isValid ? '#00ff0066' : '#ff000066', 1);
+        });
+        
+        // Draw tower preview at cursor
+        if (towerDragPreview) {
+            const isValid = isValidPlacement(towerDragPreview);
+            drawHex(towerDragPreview, isValid ? 'rgba(255, 0, 0, 0.4)' : 'rgba(100, 0, 0, 0.4)', true);
+            
+            // Draw tower icon preview
+            const pos = hexToPixel(towerDragPreview);
+            ctx.fillStyle = isValid ? '#ff0000' : '#800000';
+            ctx.font = `${HEX_SIZE * 1.2}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('▲', pos.x, pos.y);
+        }
     }
     
     ctx.restore();
@@ -711,6 +845,18 @@ function drawTower(tower) {
     
     const pos = hexToPixel(tower.position);
     
+    // Determine tower color based on team (player-built vs neutral)
+    let towerColor = '#ff0000'; // Neutral red
+    let towerBaseColor = '#4a0000'; // Dark red
+    
+    if (tower.team === 'green') {
+        towerColor = '#00ff00';
+        towerBaseColor = '#006600';
+    } else if (tower.team === 'blue') {
+        towerColor = '#4ECDC4';
+        towerBaseColor = '#1a5a54';
+    }
+    
     // Highlight if this is the targeted tower
     const isTargeted = gameState.player && gameState.player.targetedTower === tower.id;
     
@@ -726,10 +872,10 @@ function drawTower(tower) {
     }
     
     // Draw tower base (darker hex)
-    drawHex(tower.position, isTargeted ? '#6a4a00' : '#4a0000', true);
+    drawHex(tower.position, isTargeted ? '#6a4a00' : towerBaseColor, true);
     
     // Draw tower triangle
-    ctx.fillStyle = isTargeted ? '#ffaa00' : '#ff0000';
+    ctx.fillStyle = isTargeted ? '#ffaa00' : towerColor;
     ctx.beginPath();
     const size = HEX_SIZE * 0.6;
     ctx.moveTo(pos.x, pos.y - size);

@@ -72,6 +72,14 @@ io.on('connection', (socket) => {
     socket.emit('lrmResult', result);
   });
 
+  // Handle tower building
+  socket.on('buildTower', (position) => {
+    const result = gameState.buildTower(socket.id, position);
+    if (!result.success) {
+      socket.emit('buildTowerResult', result);
+    }
+  });
+
   // Handle game reset request
   socket.on('resetGame', () => {
     console.log('Game reset requested - clearing all players');
