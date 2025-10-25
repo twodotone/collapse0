@@ -848,6 +848,16 @@ class GameState {
     for (const player of this.players.values()) {
       if (player.isDead) continue;
       
+      // Check team allegiance
+      // Neutral towers (no team property) attack everyone
+      // Team towers only attack enemy players
+      if (tower.team) {
+        // This is a team tower - only attack enemies
+        if (player.team === tower.team) {
+          continue; // Don't attack teammates
+        }
+      }
+      
       const distance = this.hexGrid.distance(tower.position, player.position);
       if (distance <= tower.attackRange && distance < closestDistance) {
         closestPlayer = player;
@@ -875,8 +885,12 @@ class GameState {
   towerAttackPlayer(tower, player) {
     player.hp -= tower.damage;
     
-    // Create projectile for visual effect
-    this.createProjectile(tower.position, player.position, '#ff0000');
+    // Create projectile for visual effect (match tower team color)
+    let projectileColor = '#ff0000'; // Neutral red
+    if (tower.team === 'green') projectileColor = '#00ff00';
+    else if (tower.team === 'blue') projectileColor = '#4ECDC4';
+    
+    this.createProjectile(tower.position, player.position, projectileColor);
     
     if (player.hp <= 0) {
       player.isDead = true;
@@ -884,7 +898,9 @@ class GameState {
       player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
       player.destination = null;
       player.path = [];
-      console.log(`${player.username} was killed by Tower ${tower.id}`);
+      
+      const towerType = tower.team ? `${tower.team} tower ${tower.id}` : `neutral tower ${tower.id}`;
+      console.log(`${player.username} was killed by ${towerType}`);
     }
   }
 
