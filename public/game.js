@@ -285,14 +285,20 @@ function setupBuildPanel() {
             towerCard.classList.add('dragging');
             calculateValidPlacementZones();
             e.preventDefault();
+            e.stopPropagation();
         }
     });
     
     document.addEventListener('mouseup', (e) => {
         if (isDraggingTower) {
+            console.log('Tower drag ended at:', towerDragPreview);
+            
             // Try to place tower at current hover position
             if (towerDragPreview && isValidPlacement(towerDragPreview)) {
+                console.log('Placing tower at valid position:', towerDragPreview);
                 socket.emit('buildTower', towerDragPreview);
+            } else {
+                console.log('Invalid placement position');
             }
             
             isDraggingTower = false;
@@ -300,6 +306,8 @@ function setupBuildPanel() {
             validPlacementZones = [];
             towerCard.classList.remove('dragging');
             render();
+            e.preventDefault();
+            e.stopPropagation();
         }
     });
 }
@@ -325,13 +333,23 @@ function updateBuildPanel() {
 
 function calculateValidPlacementZones() {
     validPlacementZones = [];
-    if (!gameState || !gameState.player) return;
+    if (!gameState || !gameState.player) {
+        console.log('Cannot calculate placement zones: no gameState or player');
+        return;
+    }
     
     const buildRadius = 4;
     const playerPos = gameState.player.position;
     
     // Find player's team base
     const playerBase = gameState.bases?.find(b => b.team === gameState.player.team);
+    
+    console.log('Calculating placement zones:', {
+        buildRadius,
+        playerPos,
+        playerBase: playerBase?.position,
+        playerTeam: gameState.player.team
+    });
     
     // Check all hexes in range
     for (let q = -10; q <= 10; q++) {
@@ -347,13 +365,16 @@ function calculateValidPlacementZones() {
             }
         }
     }
+    
+    console.log(`Found ${validPlacementZones.length} valid placement zones`);
 }
 
 function isValidPlacement(hex) {
     if (!gameState) return false;
     
     // Must be in valid placement zone
-    if (!validPlacementZones.some(v => v.q === hex.q && v.r === hex.r)) {
+    const inZone = validPlacementZones.some(v => v.q === hex.q && v.r === hex.r);
+    if (!inZone) {
         return false;
     }
     
@@ -378,6 +399,11 @@ function hexToPixel(hex) {
 // Helper function to scale line width with zoom
 function scaledLineWidth(baseWidth) {
     return Math.max(0.5, baseWidth / camera.zoom);
+}
+
+// Calculate distance between two hexes
+function hexDistance(a, b) {
+    return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 }
 
 function pixelToHex(x, y) {
@@ -411,13 +437,16 @@ function hexRound(hex) {
 
 // Mouse handling
 function handleMouseDown(e) {
+    // Don't start camera drag if we're dragging a tower
+    if (isDraggingTower) return;
+    
     isDragging = true;
     lastMousePos = { x: e.clientX, y: e.clientY };
     canvas.style.cursor = 'grabbing';
 }
 
 function handleMouseMove(e) {
-    if (isDragging) {
+    if (isDragging && !isDraggingTower) {
         const dx = e.clientX - lastMousePos.x;
         const dy = e.clientY - lastMousePos.y;
         
@@ -466,6 +495,9 @@ function handleWheel(e) {
 }
 
 function handleClick(e) {
+    // Don't process click if we're placing a tower
+    if (isDraggingTower) return;
+    
     if (!gameState || !gameState.player) return;
     
     const rect = canvas.getBoundingClientRect();
