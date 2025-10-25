@@ -66,6 +66,14 @@ io.on('connection', (socket) => {
     socket.emit('lrmResult', result);
   });
 
+  // Handle game reset request
+  socket.on('resetGame', () => {
+    gameState.resetGame();
+    
+    // Broadcast reset to all players
+    io.emit('gameReset');
+  });
+
   // Handle disconnection
   socket.on('disconnect', () => {
     const player = gameState.getPlayer(socket.id);

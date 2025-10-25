@@ -907,6 +907,50 @@ class GameState {
       projectiles: this.projectiles
     };
   }
+
+  /**
+   * Reset the game state for a new match
+   */
+  resetGame() {
+    console.log('Resetting game...');
+    
+    // Clear all entities
+    this.landmarks.clear();
+    this.towers.clear();
+    this.bases.clear();
+    this.projectiles = [];
+    
+    // Reset IDs
+    this.nextLandmarkId = 1;
+    this.nextTowerId = 1;
+    this.nextBaseId = 1;
+    this.nextProjectileId = 1;
+    
+    // Reset game state
+    this.gameOver = false;
+    this.winner = null;
+    
+    // Reset all players
+    for (const player of this.players.values()) {
+      player.hp = this.config.player.startingHp;
+      player.energy = this.config.player.startingEnergy;
+      player.isDead = false;
+      player.position = this.getRandomSpawnPosition(player.team);
+      player.destination = null;
+      player.path = [];
+      player.target = null;
+      player.targetedTower = null;
+      player.weapons.lrm.available = true;
+      player.weapons.lrm.lastFired = 0;
+      player.weapons.lrm.cooldownRemaining = 0;
+    }
+    
+    // Reinitialize map
+    this.initializeBases();
+    this.initializeLandmarks();
+    
+    console.log('Game reset complete!');
+  }
 }
 
 module.exports = GameState;

@@ -160,6 +160,11 @@ function setupSocketListeners() {
             console.log('LRM: ' + result.message);
         }
     });
+
+    socket.on('gameReset', () => {
+        console.log('Game has been reset');
+        location.reload();
+    });
 }
 
 function updateHUD() {
@@ -834,6 +839,7 @@ function drawHPBar(pos, hp, maxHp, width) {
 function showGameOver(winner) {
     // Create game over overlay
     const overlay = document.createElement('div');
+    overlay.id = 'game-over-overlay';
     overlay.style.cssText = `
         position: fixed;
         top: 0;
@@ -861,7 +867,7 @@ function showGameOver(winner) {
         <p style="font-family: 'Courier New', monospace; font-size: 1.5em; color: #888;">
             Enemy base destroyed
         </p>
-        <button onclick="location.reload()" style="
+        <button id="play-again-btn" style="
             margin-top: 40px;
             background: #ff6b6b;
             border: none;
@@ -876,6 +882,11 @@ function showGameOver(winner) {
     `;
     
     document.body.appendChild(overlay);
+    
+    // Add click handler to reset game
+    document.getElementById('play-again-btn').addEventListener('click', () => {
+        socket.emit('resetGame');
+    });
 }
 
 // Animation loop
