@@ -74,9 +74,15 @@ io.on('connection', (socket) => {
 
   // Handle game reset request
   socket.on('resetGame', () => {
+    console.log('Game reset requested - clearing all players');
+    
+    // Clear all players from game state
+    gameState.players.clear();
+    
+    // Reset the game
     gameState.resetGame();
     
-    // Broadcast reset to all players
+    // Broadcast reset to all clients (they will disconnect and reload)
     io.emit('gameReset');
   });
 

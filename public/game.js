@@ -131,8 +131,8 @@ function setupSocketListeners() {
     socket.on('gameUpdate', (state) => {
         gameState = state;
         
-        // Check for game over
-        if (gameState.gameOver) {
+        // Check for game over (only show once)
+        if (gameState.gameOver && !document.getElementById('game-over-overlay')) {
             showGameOver(gameState.winner);
             return;
         }
@@ -168,7 +168,9 @@ function setupSocketListeners() {
     });
 
     socket.on('gameReset', () => {
-        console.log('Game has been reset');
+        console.log('Game has been reset - returning to login');
+        // Disconnect and reload to show login screen
+        socket.disconnect();
         location.reload();
     });
 }

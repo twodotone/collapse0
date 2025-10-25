@@ -37,7 +37,7 @@ class GameState {
     // Create green base (center of green zone)
     const greenZone = zones.green.spawnArea;
     const greenBase = {
-      id: this.nextBaseId++,
+      id: 'base-green',
       team: 'green',
       position: {
         q: Math.floor((greenZone.qMin + greenZone.qMax) / 2),
@@ -58,7 +58,7 @@ class GameState {
     // Create blue base (center of blue zone)
     const blueZone = zones.blue.spawnArea;
     const blueBase = {
-      id: this.nextBaseId++,
+      id: 'base-blue',
       team: 'blue',
       position: {
         q: Math.floor((blueZone.qMin + blueZone.qMax) / 2),
