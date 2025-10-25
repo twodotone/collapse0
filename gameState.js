@@ -764,6 +764,8 @@ class GameState {
     if (player.hp <= 0) {
       player.isDead = true;
       player.hp = 0;
+      player.destination = null;
+      player.path = [];
       player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
       console.log(`${player.username} was killed by ${base.team} base`);
     }
@@ -833,7 +835,10 @@ class GameState {
       player.hp = player.maxHp;
       // Respawn in team's starting zone
       player.position = this.getRandomSpawnPosition(player.team);
-      console.log(`${player.username} respawned in ${player.team} zone`);
+      player.destination = null;
+      player.path = [];
+      player.movementProgress = 0;
+      console.log(`${player.username} respawned in ${player.team} zone at (${player.position.q},${player.position.r})`);
     }
   }
 

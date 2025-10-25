@@ -380,6 +380,22 @@ function handleRightClick(e) {
         }
     }
     
+    // Check if clicked on a base
+    if (gameState.bases) {
+        for (const base of gameState.bases) {
+            if (base.position.q === hex.q && base.position.r === hex.r && !base.isDestroyed) {
+                // Don't allow targeting own base
+                if (base.team === gameState.player.team) {
+                    console.log('Cannot target own base');
+                    return;
+                }
+                console.log('Targeted enemy base:', base.id);
+                socket.emit('targetTower', base.id);
+                return;
+            }
+        }
+    }
+    
     // Clear target if clicked elsewhere
     socket.emit('targetTower', null);
 }
