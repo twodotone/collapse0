@@ -47,7 +47,7 @@ const GameConfig = {
     maxHp: 30,
     attackRange: 3,  // Hexes - reduced from 6
     damage: 10,  // High damage - very dangerous
-    attackSpeed: 0.75,  // Attacks per game hour (slower - more tactical)
+    attackSpeed: 0.1,  // 10 second reload (0.1 attacks per second)
     visionRange: 7,  // Can detect enemies this far
   },
 
@@ -56,7 +56,7 @@ const GameConfig = {
     maxHp: 20,
     attackRange: 7,
     damage: 10,
-    attackSpeed: 0.75,
+    attackSpeed: 0.1,  // 10 second reload
     visionRange: 10,
   },
 
@@ -82,12 +82,14 @@ const GameConfig = {
 
   // Weapon Systems
   weapons: {
-    autoLaser: {
-      name: 'Auto Laser',
+    laser: {
+      name: 'Laser',
+      displayName: 'LASER',
       range: 2,  // Matches player attack range
       damage: 4,
-      fireRate: 2.0,  // Attacks per game hour
-      type: 'auto',  // Fires automatically at target
+      cooldown: 7,  // 7 second reload
+      type: 'manual',  // Player activated
+      hotkey: '2',
     },
     lrm: {
       name: 'LRM',
@@ -102,7 +104,7 @@ const GameConfig = {
 
   // Combat Settings
   combat: {
-    autoTargetEnabled: true,  // Auto-target enemies in range
+    autoTargetEnabled: false,  // Manual targeting only
     projectileSpeed: 20,  // Hexes per second (faster projectiles!)
   },
 

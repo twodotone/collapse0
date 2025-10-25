@@ -213,6 +213,11 @@ class GameState {
       isDead: false,
       respawnTime: 0,
       weapons: {
+        laser: {
+          available: true,
+          lastFired: 0,
+          cooldownRemaining: 0
+        },
         lrm: {
           available: true,
           lastFired: 0,
@@ -299,6 +304,81 @@ class GameState {
     
     player.targetedTower = towerId;
     return true;
+  }
+
+  /**
+   * Fire laser at targeted structure
+   */
+  fireLaser(playerId) {
+    const player = this.players.get(playerId);
+    if (!player) return { success: false, message: 'Player not found' };
+    
+    const laserConfig = this.config.weapons.laser;
+    
+    // Check if laser is available
+    if (!player.weapons.laser.available) {
+      return { success: false, message: 'Laser on cooldown' };
+    }
+    
+    // Check if player has a target (tower or base)
+    if (!player.targetedTower) {
+      return { success: false, message: 'No target selected' };
+    }
+    
+    // Check if target is a tower
+    let target = this.towers.get(player.targetedTower);
+    let targetType = 'tower';
+    
+    // If not a tower, check if it's a base
+    if (!target || target.isDestroyed) {
+      target = this.bases.get(player.targetedTower);
+      targetType = 'base';
+    }
+    
+    if (!target || target.isDestroyed) {
+      player.targetedTower = null;
+      return { success: false, message: 'Target destroyed' };
+    }
+    
+    // Don't allow shooting own base
+    if (targetType === 'base' && target.team === player.team) {
+      return { success: false, message: 'Cannot target own base' };
+    }
+    
+    // Check range
+    const distance = this.hexGrid.distance(player.position, target.position);
+    if (distance > laserConfig.range) {
+      return { success: false, message: 'Target out of range' };
+    }
+    
+    // Fire Laser!
+    target.hp -= laserConfig.damage;
+    this.createProjectile(player.position, target.position, player.color, false);
+    
+    if (target.hp <= 0) {
+      target.isDestroyed = true;
+      target.hp = 0;
+      player.targetedTower = null;
+      
+      if (targetType === 'base') {
+        this.gameOver = true;
+        this.winner = player.team;
+        console.log(`╔═══════════════════════════════════╗`);
+        console.log(`║  GAME OVER! ${player.team.toUpperCase()} TEAM WINS!  ║`);
+        console.log(`║  ${target.team.toUpperCase()} base destroyed by ${player.username}'s Laser  ║`);
+        console.log(`╚═══════════════════════════════════╝`);
+      } else {
+        console.log(`Tower ${target.id} destroyed by ${player.username}'s Laser`);
+      }
+    }
+    
+    // Start cooldown
+    const now = Date.now();
+    player.weapons.laser.available = false;
+    player.weapons.laser.lastFired = now;
+    player.weapons.laser.cooldownRemaining = laserConfig.cooldown * 1000; // Convert to ms
+    
+    return { success: true, message: 'Laser fired!' };
   }
 
   /**
@@ -576,11 +656,19 @@ class GameState {
    * Update player combat - auto-target and shoot at towers
    */
   updatePlayerCombat(player, deltaTime) {
-    if (!this.config.combat.autoTargetEnabled) return;
-
     const now = Date.now();
     
     // Update weapon cooldowns
+    if (!player.weapons.laser.available) {
+      player.weapons.laser.cooldownRemaining = Math.max(0, 
+        this.config.weapons.laser.cooldown * 1000 - (now - player.weapons.laser.lastFired)
+      );
+      
+      if (player.weapons.laser.cooldownRemaining === 0) {
+        player.weapons.laser.available = true;
+      }
+    }
+    
     if (!player.weapons.lrm.available) {
       player.weapons.lrm.cooldownRemaining = Math.max(0, 
         this.config.weapons.lrm.cooldown * 1000 - (now - player.weapons.lrm.lastFired)
@@ -588,70 +676,6 @@ class GameState {
       
       if (player.weapons.lrm.cooldownRemaining === 0) {
         player.weapons.lrm.available = true;
-      }
-    }
-    
-    // Find targets: towers and enemy bases
-    let targetStructure = null;
-    let targetType = null; // 'tower' or 'base'
-    
-    // Prioritize manually targeted tower
-    if (player.targetedTower) {
-      const tower = this.towers.get(player.targetedTower);
-      if (tower && !tower.isDestroyed) {
-        const distance = this.hexGrid.distance(player.position, tower.position);
-        if (distance <= this.config.weapons.autoLaser.range) {
-          targetStructure = tower;
-          targetType = 'tower';
-        }
-      } else {
-        player.targetedTower = null;
-      }
-    }
-    
-    // If no targeted tower in range, find closest tower or enemy base
-    if (!targetStructure) {
-      let closestDistance = Infinity;
-      
-      // Check towers
-      for (const tower of this.towers.values()) {
-        if (tower.isDestroyed) continue;
-        
-        const distance = this.hexGrid.distance(player.position, tower.position);
-        if (distance <= this.config.weapons.autoLaser.range && distance < closestDistance) {
-          targetStructure = tower;
-          targetType = 'tower';
-          closestDistance = distance;
-        }
-      }
-      
-      // Check enemy bases
-      for (const base of this.bases.values()) {
-        if (base.isDestroyed || base.team === player.team) continue;
-        
-        const distance = this.hexGrid.distance(player.position, base.position);
-        if (distance <= this.config.weapons.autoLaser.range && distance < closestDistance) {
-          targetStructure = base;
-          targetType = 'base';
-          closestDistance = distance;
-        }
-      }
-    }
-    
-    player.target = targetStructure ? targetStructure.id : null;
-    
-    // Attack if we have a target
-    if (targetStructure) {
-      const timeSinceLastAttack = now - player.lastAttackTime;
-      const attackCooldown = (1 / this.config.weapons.autoLaser.fireRate) * this.config.time.scale;
-      
-      if (timeSinceLastAttack >= attackCooldown) {
-        if (targetType === 'tower') {
-          this.playerAttackTower(player, targetStructure);
-        } else if (targetType === 'base') {
-          this.playerAttackBase(player, targetStructure);
-        }
-        player.lastAttackTime = now;
       }
     }
   }
@@ -940,6 +964,9 @@ class GameState {
       player.path = [];
       player.target = null;
       player.targetedTower = null;
+      player.weapons.laser.available = true;
+      player.weapons.laser.lastFired = 0;
+      player.weapons.laser.cooldownRemaining = 0;
       player.weapons.lrm.available = true;
       player.weapons.lrm.lastFired = 0;
       player.weapons.lrm.cooldownRemaining = 0;

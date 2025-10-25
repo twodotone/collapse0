@@ -161,6 +161,12 @@ function setupSocketListeners() {
         }
     });
 
+    socket.on('laserResult', (result) => {
+        if (!result.success) {
+            console.log('Laser: ' + result.message);
+        }
+    });
+
     socket.on('gameReset', () => {
         console.log('Game has been reset');
         location.reload();
@@ -223,6 +229,7 @@ function updateHUD() {
 function updateWeaponUI() {
     if (!gameState || !gameState.player || !gameState.player.weapons) return;
     
+    // Update LRM
     const lrmSlot = document.getElementById('weapon-lrm');
     const lrmProgress = document.getElementById('lrm-cooldown-progress');
     const lrmWeapon = gameState.player.weapons.lrm;
@@ -236,6 +243,22 @@ function updateWeaponUI() {
         lrmSlot.classList.remove('ready');
         const progress = Math.max(0, (30000 - lrmWeapon.cooldownRemaining) / 30000 * 100);
         lrmProgress.style.width = progress + '%';
+    }
+    
+    // Update Laser
+    const laserSlot = document.getElementById('weapon-laser');
+    const laserProgress = document.getElementById('laser-cooldown-progress');
+    const laserWeapon = gameState.player.weapons.laser;
+    
+    if (laserWeapon.available) {
+        laserSlot.classList.remove('cooldown');
+        laserSlot.classList.add('ready');
+        laserProgress.style.width = '100%';
+    } else {
+        laserSlot.classList.add('cooldown');
+        laserSlot.classList.remove('ready');
+        const progress = Math.max(0, (7000 - laserWeapon.cooldownRemaining) / 7000 * 100);
+        laserProgress.style.width = progress + '%';
     }
 }
 
@@ -367,6 +390,11 @@ function handleKeyDown(e) {
     // LRM hotkey
     if (e.key === '1') {
         socket.emit('fireLRM');
+    }
+    
+    // Laser hotkey
+    if (e.key === '2') {
+        socket.emit('fireLaser');
     }
 }
 
