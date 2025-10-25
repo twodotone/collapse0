@@ -26,9 +26,12 @@ io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
   // Handle player join
-  socket.on('join', (username) => {
-    const player = gameState.addPlayer(socket.id, username);
-    console.log(`${player.username} joined the game`);
+  socket.on('join', (data) => {
+    const username = typeof data === 'string' ? data : data.username;
+    const team = typeof data === 'object' ? data.team : 'green';
+    
+    const player = gameState.addPlayer(socket.id, username, team);
+    console.log(`${player.username} joined the ${team} team`);
 
     // Send initial game state to the new player
     socket.emit('init', gameState.getGameStateForPlayer(socket.id));
@@ -52,6 +55,17 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle tower targeting
+  socket.on('targetTower', (towerId) => {
+    gameState.setPlayerTarget(socket.id, towerId);
+  });
+
+  // Handle LRM firing
+  socket.on('fireLRM', () => {
+    const result = gameState.fireLRM(socket.id);
+    socket.emit('lrmResult', result);
+  });
+
   // Handle disconnection
   socket.on('disconnect', () => {
     const player = gameState.getPlayer(socket.id);
@@ -71,7 +85,7 @@ setInterval(() => {
     const state = gameState.getGameStateForPlayer(playerId);
     io.to(playerId).emit('gameUpdate', state);
   }
-}, 100); // Update every 100ms
+}, gameState.config.updates.clientBroadcast); // Use config value
 
 // Start server
 server.listen(PORT, () => {
@@ -80,8 +94,9 @@ server.listen(PORT, () => {
   ║      COLLAPSE 0 - Server Running       ║
   ╠════════════════════════════════════════╣
   ║  Port: ${PORT}                            ║
-  ║  Time Scale: 1 hour = 5 seconds        ║
-  ║  Map Size: 50x50 hexes                 ║
+  ║  Mode: BASE ASSAULT                    ║
+  ║  Oil Rigs: 1 (center, 3 towers)        ║
+  ║  Win: Destroy enemy base (20 HP)       ║
   ╚════════════════════════════════════════╝
   
   Server ready at http://localhost:${PORT}

@@ -1,69 +1,262 @@
 const HexGrid = require('./hexGrid');
+const GameConfig = require('./config');
 
 /**
  * Game State Manager
- * Manages all players, landmarks, and game mechanics
+ * Manages all players, landmarks, towers, and game mechanics
  */
 class GameState {
   constructor() {
-    this.hexGrid = new HexGrid(25); // 50x50 effective map
+    this.hexGrid = new HexGrid(GameConfig.map.radius);
     this.players = new Map(); // playerId -> player object
     this.landmarks = new Map(); // landmarkId -> landmark object
+    this.towers = new Map(); // towerId -> tower object
+    this.bases = new Map(); // baseId -> base object (team bases)
+    this.projectiles = []; // Active projectiles
     this.nextLandmarkId = 1;
+    this.nextTowerId = 1;
+    this.nextBaseId = 1;
+    this.nextProjectileId = 1;
+    this.gameOver = false;
+    this.winner = null;
     
-    // Game constants
-    this.TIME_SCALE = 5000; // 1 game hour = 5 seconds (5000ms)
-    this.MOVEMENT_TIME_PER_HEX = 1; // 1 game hour per hex
-    this.OIL_REGENERATION_RATE = 10; // Oil units per game hour
-    this.CAPTURE_TIME = 2; // 2 game hours to capture
-    this.STARTING_ENERGY = 100;
+    this.config = GameConfig;
     
+    this.initializeBases();
     this.initializeLandmarks();
     this.startGameLoop();
   }
 
   /**
-   * Initialize landmarks with oil deposits
+   * Initialize team bases in starting zones
+   */
+  initializeBases() {
+    const zones = this.config.map.startingZones;
+    const baseCfg = this.config.bases;
+    
+    // Create green base (center of green zone)
+    const greenZone = zones.green.spawnArea;
+    const greenBase = {
+      id: this.nextBaseId++,
+      team: 'green',
+      position: {
+        q: Math.floor((greenZone.qMin + greenZone.qMax) / 2),
+        r: Math.floor((greenZone.rMin + greenZone.rMax) / 2)
+      },
+      hp: baseCfg.maxHp,
+      maxHp: baseCfg.maxHp,
+      attackRange: baseCfg.attackRange,
+      damage: baseCfg.damage,
+      attackSpeed: baseCfg.attackSpeed,
+      visionRange: baseCfg.visionRange,
+      target: null,
+      lastAttackTime: 0,
+      isDestroyed: false
+    };
+    this.bases.set(greenBase.id, greenBase);
+    
+    // Create blue base (center of blue zone)
+    const blueZone = zones.blue.spawnArea;
+    const blueBase = {
+      id: this.nextBaseId++,
+      team: 'blue',
+      position: {
+        q: Math.floor((blueZone.qMin + blueZone.qMax) / 2),
+        r: Math.floor((blueZone.rMin + blueZone.rMax) / 2)
+      },
+      hp: baseCfg.maxHp,
+      maxHp: baseCfg.maxHp,
+      attackRange: baseCfg.attackRange,
+      damage: baseCfg.damage,
+      attackSpeed: baseCfg.attackSpeed,
+      visionRange: baseCfg.visionRange,
+      target: null,
+      lastAttackTime: 0,
+      isDestroyed: false
+    };
+    this.bases.set(blueBase.id, blueBase);
+    
+    console.log(`Initialized bases: Green at (${greenBase.position.q},${greenBase.position.r}), Blue at (${blueBase.position.q},${blueBase.position.r})`);
+  }
+
+  /**
+   * Initialize landmarks with oil deposits and defensive towers
    */
   initializeLandmarks() {
-    const landmarkCount = 15; // Start with 15 oil deposits
+    const cfg = this.config.landmarks;
     
-    for (let i = 0; i < landmarkCount; i++) {
-      const position = this.hexGrid.getRandomHex();
-      const landmark = {
-        id: this.nextLandmarkId++,
-        position,
-        oil: Math.floor(Math.random() * 500) + 100, // 100-600 oil
-        maxOil: 1000,
-        regenerationRate: this.OIL_REGENERATION_RATE,
-        capturingPlayer: null,
-        captureProgress: 0
+    // Place single oil rig at center of map
+    const landmark = {
+      id: this.nextLandmarkId++,
+      position: { q: 0, r: 0 }, // Center of map
+      oil: 0,
+      maxOil: cfg.maxOil,
+      regenerationRate: cfg.regenerationRate,
+      capturingPlayer: null,
+      captureProgress: 0,
+      towers: [] // IDs of towers defending this landmark
+    };
+    
+    this.landmarks.set(landmark.id, landmark);
+    
+    // Create defensive towers around this landmark
+    this.createTowersForLandmark(landmark);
+    
+    console.log(`Initialized central oil rig at (0,0) with ${this.config.towers.perLandmark} towers`);
+  }
+
+  /**
+   * Check if position is outside all starting zones (safe areas)
+   */
+  isPositionOutsideStartingZones(position) {
+    const zones = this.config.map.startingZones;
+    const safeRadius = 5; // 5 hex buffer zone
+    
+    for (const zoneName in zones) {
+      const zone = zones[zoneName];
+      const { rMin, rMax } = zone.spawnArea;
+      
+      // For bottom zone (green, positive r), check if within buffer above the zone
+      // For top zone (blue, negative r), check if within buffer below the zone
+      if (rMin > 0) {
+        // Bottom zone - check r values above it (smaller r values)
+        if (position.r >= rMin - safeRadius && position.r <= rMax) {
+          return false;
+        }
+      } else {
+        // Top zone - check r values below it (larger r values)
+        if (position.r <= rMax + safeRadius && position.r >= rMin) {
+          return false;
+        }
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * Create defensive towers around a landmark
+   */
+  createTowersForLandmark(landmark) {
+    const cfg = this.config.towers;
+    const towersToCreate = cfg.perLandmark;
+    
+    for (let i = 0; i < towersToCreate; i++) {
+      // Place towers in a circle around the landmark
+      const angle = (Math.PI * 2 / towersToCreate) * i;
+      const distance = cfg.placementRadius;
+      
+      // Calculate offset hex position
+      const offsetQ = Math.round(Math.cos(angle) * distance);
+      const offsetR = Math.round(Math.sin(angle) * distance);
+      
+      const towerPosition = {
+        q: landmark.position.q + offsetQ,
+        r: landmark.position.r + offsetR
       };
       
-      this.landmarks.set(landmark.id, landmark);
+      // Ensure tower is on valid hex and outside starting zones
+      if (!this.hexGrid.isValidHex(towerPosition) || !this.isPositionOutsideStartingZones(towerPosition)) {
+        continue;
+      }
+      
+      const tower = {
+        id: this.nextTowerId++,
+        position: towerPosition,
+        landmarkId: landmark.id,
+        hp: cfg.maxHp,
+        maxHp: cfg.maxHp,
+        attackRange: cfg.attackRange,
+        damage: cfg.damage,
+        attackSpeed: cfg.attackSpeed,
+        visionRange: cfg.visionRange,
+        target: null,
+        lastAttackTime: 0,
+        isDestroyed: false
+      };
+      
+      this.towers.set(tower.id, tower);
+      landmark.towers.push(tower.id);
     }
   }
 
   /**
    * Add a new player to the game
    */
-  addPlayer(playerId, username) {
-    const spawnPosition = this.hexGrid.getRandomHex();
+  addPlayer(playerId, username, team = 'green') {
+    const zone = this.config.map.startingZones[team];
+    if (!zone) {
+      team = 'green'; // Default to green if invalid team
+    }
+    
+    const spawnPosition = this.getRandomSpawnPosition(team);
+    const cfg = this.config.player;
     
     const player = {
       id: playerId,
       username: username || `Player${playerId.substring(0, 6)}`,
+      team: team,
       position: spawnPosition,
       destination: null,
       movementProgress: 0, // 0 to 1, represents progress to next hex
       path: [], // Array of hex coordinates to follow
-      energy: this.STARTING_ENERGY,
-      color: this.getRandomColor(),
+      energy: cfg.startingEnergy,
+      hp: cfg.startingHp,
+      maxHp: cfg.maxHp,
+      attackRange: cfg.attackRange,
+      damage: cfg.damage,
+      attackSpeed: cfg.attackSpeed,
+      visionRange: cfg.visionRange,
+      target: null,
+      targetedTower: null, // Manually selected tower target
+      lastAttackTime: 0,
+      isDead: false,
+      respawnTime: 0,
+      weapons: {
+        lrm: {
+          available: true,
+          lastFired: 0,
+          cooldownRemaining: 0
+        }
+      },
+      color: this.getTeamColor(team),
       lastUpdate: Date.now()
     };
     
     this.players.set(playerId, player);
     return player;
+  }
+
+  /**
+   * Get a random spawn position within a team's starting zone
+   */
+  getRandomSpawnPosition(team) {
+    const zone = this.config.map.startingZones[team];
+    if (!zone) return { q: 0, r: 0 };
+    
+    const { qMin, qMax, rMin, rMax } = zone.spawnArea;
+    
+    let position;
+    let attempts = 0;
+    do {
+      const q = Math.floor(Math.random() * (qMax - qMin + 1)) + qMin;
+      const r = Math.floor(Math.random() * (rMax - rMin + 1)) + rMin;
+      position = { q, r };
+      attempts++;
+    } while (!this.hexGrid.isValidHex(position) && attempts < 50);
+    
+    return position;
+  }
+
+  /**
+   * Get color based on team
+   */
+  getTeamColor(team) {
+    const colors = {
+      green: '#00ff00',
+      blue: '#4ECDC4'
+    };
+    return colors[team] || '#00ff00';
   }
 
   /**
@@ -98,6 +291,92 @@ class GameState {
   }
 
   /**
+   * Set player's targeted tower
+   */
+  setPlayerTarget(playerId, towerId) {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    
+    player.targetedTower = towerId;
+    return true;
+  }
+
+  /**
+   * Fire LRM at targeted tower
+   */
+  fireLRM(playerId) {
+    const player = this.players.get(playerId);
+    if (!player) return { success: false, message: 'Player not found' };
+    
+    const lrmConfig = this.config.weapons.lrm;
+    
+    // Check if LRM is available
+    if (!player.weapons.lrm.available) {
+      return { success: false, message: 'LRM on cooldown' };
+    }
+    
+    // Check if player has a target (tower or base)
+    if (!player.targetedTower) {
+      return { success: false, message: 'No target selected' };
+    }
+    
+    // Check if target is a tower
+    let target = this.towers.get(player.targetedTower);
+    let targetType = 'tower';
+    
+    // If not a tower, check if it's a base
+    if (!target || target.isDestroyed) {
+      target = this.bases.get(player.targetedTower);
+      targetType = 'base';
+    }
+    
+    if (!target || target.isDestroyed) {
+      player.targetedTower = null;
+      return { success: false, message: 'Target destroyed' };
+    }
+    
+    // Don't allow shooting own base
+    if (targetType === 'base' && target.team === player.team) {
+      return { success: false, message: 'Cannot target own base' };
+    }
+    
+    // Check range
+    const distance = this.hexGrid.distance(player.position, target.position);
+    if (distance > lrmConfig.range) {
+      return { success: false, message: 'Target out of range' };
+    }
+    
+    // Fire LRM!
+    target.hp -= lrmConfig.damage;
+    this.createProjectile(player.position, target.position, '#ffff00', true); // Yellow for LRM
+    
+    if (target.hp <= 0) {
+      target.isDestroyed = true;
+      target.hp = 0;
+      player.targetedTower = null;
+      
+      if (targetType === 'base') {
+        this.gameOver = true;
+        this.winner = player.team;
+        console.log(`╔═══════════════════════════════════╗`);
+        console.log(`║  GAME OVER! ${player.team.toUpperCase()} TEAM WINS!  ║`);
+        console.log(`║  ${target.team.toUpperCase()} base destroyed by ${player.username}'s LRM  ║`);
+        console.log(`╚═══════════════════════════════════╝`);
+      } else {
+        console.log(`Tower ${target.id} destroyed by ${player.username}'s LRM`);
+      }
+    }
+    
+    // Start cooldown
+    const now = Date.now();
+    player.weapons.lrm.available = false;
+    player.weapons.lrm.lastFired = now;
+    player.weapons.lrm.cooldownRemaining = lrmConfig.cooldown * 1000; // Convert to ms
+    
+    return { success: true, message: 'LRM fired!' };
+  }
+
+  /**
    * Calculate simple path between two hexes
    * Using linear interpolation for now
    */
@@ -128,22 +407,46 @@ class GameState {
   /**
    * Get visible players for a specific player (within range)
    */
-  getVisiblePlayers(playerId, visionRange = 5) {
+  getVisiblePlayers(playerId, visionRange = null) {
     const player = this.players.get(playerId);
     if (!player) return [];
 
+    // If fog of war is disabled, show all players
+    if (!this.config.fogOfWar.enabled) {
+      const allPlayers = [];
+      for (const [id, otherPlayer] of this.players) {
+        if (id === playerId) continue;
+        
+        allPlayers.push({
+          id: otherPlayer.id,
+          username: otherPlayer.username,
+          position: otherPlayer.position,
+          color: otherPlayer.color,
+          hp: otherPlayer.hp,
+          maxHp: otherPlayer.maxHp,
+          isDead: otherPlayer.isDead
+        });
+      }
+      return allPlayers;
+    }
+
+    // Fog of war enabled - use vision range
+    const effectiveRange = visionRange || player.visionRange || this.config.fogOfWar.baseVisionRange;
     const visiblePlayers = [];
     
     for (const [id, otherPlayer] of this.players) {
       if (id === playerId) continue;
       
       const distance = this.hexGrid.distance(player.position, otherPlayer.position);
-      if (distance <= visionRange) {
+      if (distance <= effectiveRange) {
         visiblePlayers.push({
           id: otherPlayer.id,
           username: otherPlayer.username,
           position: otherPlayer.position,
-          color: otherPlayer.color
+          color: otherPlayer.color,
+          hp: otherPlayer.hp,
+          maxHp: otherPlayer.maxHp,
+          isDead: otherPlayer.isDead
         });
       }
     }
@@ -157,19 +460,41 @@ class GameState {
   startGameLoop() {
     setInterval(() => {
       const now = Date.now();
-      const deltaTime = 100; // 100ms tick
+      const deltaTime = this.config.updates.gameLoopTick;
       
       // Update all players
       for (const player of this.players.values()) {
-        this.updatePlayerMovement(player, deltaTime);
-        this.updatePlayerCapture(player, deltaTime);
+        if (!player.isDead) {
+          this.updatePlayerMovement(player, deltaTime);
+          this.updatePlayerCapture(player, deltaTime);
+          this.updatePlayerCombat(player, deltaTime);
+        } else {
+          this.updatePlayerRespawn(player, deltaTime);
+        }
+      }
+      
+      // Update towers
+      for (const tower of this.towers.values()) {
+        if (!tower.isDestroyed) {
+          this.updateTowerCombat(tower, deltaTime);
+        }
+      }
+      
+      // Update bases
+      for (const base of this.bases.values()) {
+        if (!base.isDestroyed) {
+          this.updateBaseCombat(base, deltaTime);
+        }
       }
       
       // Update landmarks
       for (const landmark of this.landmarks.values()) {
         this.updateLandmark(landmark, deltaTime);
       }
-    }, 100);
+      
+      // Update projectiles
+      this.updateProjectiles(deltaTime);
+    }, this.config.updates.gameLoopTick);
   }
 
   /**
@@ -182,7 +507,7 @@ class GameState {
     }
 
     // Calculate how much progress we make this tick
-    const timePerHex = this.MOVEMENT_TIME_PER_HEX * this.TIME_SCALE;
+    const timePerHex = this.config.time.movementTimePerHex * this.config.time.scale;
     const progressDelta = deltaTime / timePerHex;
     
     player.movementProgress += progressDelta;
@@ -203,12 +528,17 @@ class GameState {
    * Update player capture progress at landmarks
    */
   updatePlayerCapture(player, deltaTime) {
+    // Check if player is at max energy
+    if (player.energy >= this.config.player.maxEnergy) {
+      return; // Stop collecting when at cap
+    }
+    
     // Check if player is at a landmark
     const landmark = this.getLandmarkAtPosition(player.position);
     
     if (landmark && landmark.oil > 0 && !player.destination) {
       // Player is stationary at an oil deposit
-      const captureTime = this.CAPTURE_TIME * this.TIME_SCALE;
+      const captureTime = this.config.landmarks.captureTime * this.config.time.scale;
       const captureDelta = deltaTime / captureTime;
       
       if (landmark.capturingPlayer !== player.id) {
@@ -220,9 +550,12 @@ class GameState {
       
       // Capture complete
       if (landmark.captureProgress >= 1) {
-        const energyGained = Math.min(10, landmark.oil); // Extract 10 oil per capture cycle
-        player.energy += energyGained;
-        landmark.oil -= energyGained;
+        const energyGained = Math.min(this.config.landmarks.oilPerCapture, landmark.oil);
+        const energyAfterCap = Math.min(this.config.player.maxEnergy, player.energy + energyGained);
+        const actualGained = energyAfterCap - player.energy;
+        
+        player.energy = energyAfterCap;
+        landmark.oil -= actualGained;
         landmark.captureProgress = 0;
       }
     }
@@ -233,10 +566,274 @@ class GameState {
    */
   updateLandmark(landmark, deltaTime) {
     if (landmark.oil < landmark.maxOil) {
-      const regenTime = this.TIME_SCALE; // Regen rate per game hour
+      const regenTime = this.config.time.scale;
       const regenDelta = (deltaTime / regenTime) * landmark.regenerationRate;
       landmark.oil = Math.min(landmark.maxOil, landmark.oil + regenDelta);
     }
+  }
+
+  /**
+   * Update player combat - auto-target and shoot at towers
+   */
+  updatePlayerCombat(player, deltaTime) {
+    if (!this.config.combat.autoTargetEnabled) return;
+
+    const now = Date.now();
+    
+    // Update weapon cooldowns
+    if (!player.weapons.lrm.available) {
+      player.weapons.lrm.cooldownRemaining = Math.max(0, 
+        this.config.weapons.lrm.cooldown * 1000 - (now - player.weapons.lrm.lastFired)
+      );
+      
+      if (player.weapons.lrm.cooldownRemaining === 0) {
+        player.weapons.lrm.available = true;
+      }
+    }
+    
+    // Find targets: towers and enemy bases
+    let targetStructure = null;
+    let targetType = null; // 'tower' or 'base'
+    
+    // Prioritize manually targeted tower
+    if (player.targetedTower) {
+      const tower = this.towers.get(player.targetedTower);
+      if (tower && !tower.isDestroyed) {
+        const distance = this.hexGrid.distance(player.position, tower.position);
+        if (distance <= this.config.weapons.autoLaser.range) {
+          targetStructure = tower;
+          targetType = 'tower';
+        }
+      } else {
+        player.targetedTower = null;
+      }
+    }
+    
+    // If no targeted tower in range, find closest tower or enemy base
+    if (!targetStructure) {
+      let closestDistance = Infinity;
+      
+      // Check towers
+      for (const tower of this.towers.values()) {
+        if (tower.isDestroyed) continue;
+        
+        const distance = this.hexGrid.distance(player.position, tower.position);
+        if (distance <= this.config.weapons.autoLaser.range && distance < closestDistance) {
+          targetStructure = tower;
+          targetType = 'tower';
+          closestDistance = distance;
+        }
+      }
+      
+      // Check enemy bases
+      for (const base of this.bases.values()) {
+        if (base.isDestroyed || base.team === player.team) continue;
+        
+        const distance = this.hexGrid.distance(player.position, base.position);
+        if (distance <= this.config.weapons.autoLaser.range && distance < closestDistance) {
+          targetStructure = base;
+          targetType = 'base';
+          closestDistance = distance;
+        }
+      }
+    }
+    
+    player.target = targetStructure ? targetStructure.id : null;
+    
+    // Attack if we have a target
+    if (targetStructure) {
+      const timeSinceLastAttack = now - player.lastAttackTime;
+      const attackCooldown = (1 / this.config.weapons.autoLaser.fireRate) * this.config.time.scale;
+      
+      if (timeSinceLastAttack >= attackCooldown) {
+        if (targetType === 'tower') {
+          this.playerAttackTower(player, targetStructure);
+        } else if (targetType === 'base') {
+          this.playerAttackBase(player, targetStructure);
+        }
+        player.lastAttackTime = now;
+      }
+    }
+  }
+
+  /**
+   * Player attacks a tower
+   */
+  playerAttackTower(player, tower) {
+    tower.hp -= player.damage;
+    
+    // Create projectile for visual effect
+    this.createProjectile(player.position, tower.position, player.color);
+    
+    if (tower.hp <= 0) {
+      tower.isDestroyed = true;
+      tower.hp = 0;
+      console.log(`Tower ${tower.id} destroyed by ${player.username}`);
+    }
+  }
+
+  /**
+   * Player attacks an enemy base - WIN CONDITION
+   */
+  playerAttackBase(player, base) {
+    base.hp -= player.damage;
+    
+    // Create projectile for visual effect
+    this.createProjectile(player.position, base.position, player.color);
+    
+    if (base.hp <= 0) {
+      base.isDestroyed = true;
+      base.hp = 0;
+      this.gameOver = true;
+      this.winner = player.team;
+      console.log(`╔═══════════════════════════════════╗`);
+      console.log(`║  GAME OVER! ${player.team.toUpperCase()} TEAM WINS!  ║`);
+      console.log(`║  ${base.team.toUpperCase()} base destroyed by ${player.username}  ║`);
+      console.log(`╚═══════════════════════════════════╝`);
+    }
+  }
+
+  /**
+   * Update base combat - auto-target and shoot at enemy players
+   */
+  updateBaseCombat(base, deltaTime) {
+    const now = Date.now();
+    
+    // Find enemy players in range
+    let closestEnemy = null;
+    let closestDistance = Infinity;
+    
+    for (const player of this.players.values()) {
+      if (player.isDead || player.team === base.team) continue; // Don't shoot teammates
+      
+      const distance = this.hexGrid.distance(base.position, player.position);
+      if (distance <= base.attackRange && distance < closestDistance) {
+        closestEnemy = player;
+        closestDistance = distance;
+      }
+    }
+    
+    base.target = closestEnemy ? closestEnemy.id : null;
+    
+    // Attack if we have a target
+    if (closestEnemy) {
+      const timeSinceLastAttack = now - base.lastAttackTime;
+      const attackCooldown = (1 / base.attackSpeed) * this.config.time.scale;
+      
+      if (timeSinceLastAttack >= attackCooldown) {
+        this.baseAttackPlayer(base, closestEnemy);
+        base.lastAttackTime = now;
+      }
+    }
+  }
+
+  /**
+   * Base attacks an enemy player
+   */
+  baseAttackPlayer(base, player) {
+    player.hp -= base.damage;
+    
+    // Create projectile for visual effect (team colored)
+    const projectileColor = base.team === 'green' ? '#00ff00' : '#4ECDC4';
+    this.createProjectile(base.position, player.position, projectileColor);
+    
+    if (player.hp <= 0) {
+      player.isDead = true;
+      player.hp = 0;
+      player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
+      console.log(`${player.username} was killed by ${base.team} base`);
+    }
+  }
+
+  /**
+   * Update tower combat - auto-target and shoot at players
+   */
+  updateTowerCombat(tower, deltaTime) {
+    const now = Date.now();
+    
+    // Find players in range
+    let closestPlayer = null;
+    let closestDistance = Infinity;
+    
+    for (const player of this.players.values()) {
+      if (player.isDead) continue;
+      
+      const distance = this.hexGrid.distance(tower.position, player.position);
+      if (distance <= tower.attackRange && distance < closestDistance) {
+        closestPlayer = player;
+        closestDistance = distance;
+      }
+    }
+    
+    tower.target = closestPlayer ? closestPlayer.id : null;
+    
+    // Attack if we have a target
+    if (closestPlayer) {
+      const timeSinceLastAttack = now - tower.lastAttackTime;
+      const attackCooldown = (1 / tower.attackSpeed) * this.config.time.scale;
+      
+      if (timeSinceLastAttack >= attackCooldown) {
+        this.towerAttackPlayer(tower, closestPlayer);
+        tower.lastAttackTime = now;
+      }
+    }
+  }
+
+  /**
+   * Tower attacks a player
+   */
+  towerAttackPlayer(tower, player) {
+    player.hp -= tower.damage;
+    
+    // Create projectile for visual effect
+    this.createProjectile(tower.position, player.position, '#ff0000');
+    
+    if (player.hp <= 0) {
+      player.isDead = true;
+      player.hp = 0;
+      player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
+      player.destination = null;
+      player.path = [];
+      console.log(`${player.username} was killed by Tower ${tower.id}`);
+    }
+  }
+
+  /**
+   * Handle player respawn
+   */
+  updatePlayerRespawn(player, deltaTime) {
+    const now = Date.now();
+    
+    if (now >= player.respawnTime) {
+      player.isDead = false;
+      player.hp = player.maxHp;
+      // Respawn in team's starting zone
+      player.position = this.getRandomSpawnPosition(player.team);
+      console.log(`${player.username} respawned in ${player.team} zone`);
+    }
+  }
+
+  /**
+   * Create a projectile for visual effects
+   */
+  createProjectile(from, to, color, isLRM = false) {
+    this.projectiles.push({
+      id: this.nextProjectileId++,
+      from: { ...from },
+      to: { ...to },
+      color: color,
+      isLRM: isLRM,
+      createdAt: Date.now(),
+      lifetime: isLRM ? 800 : 300 // LRMs travel slower/longer
+    });
+  }
+
+  /**
+   * Update and clean up projectiles
+   */
+  updateProjectiles(deltaTime) {
+    const now = Date.now();
+    this.projectiles = this.projectiles.filter(p => now - p.createdAt < p.lifetime);
   }
 
   /**
@@ -254,11 +851,6 @@ class GameState {
   /**
    * Get random color for player
    */
-  getRandomColor() {
-    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
-
   /**
    * Get full game state for a player
    */
@@ -270,9 +862,16 @@ class GameState {
       player: {
         id: player.id,
         username: player.username,
+        team: player.team,
         position: player.position,
         destination: player.destination,
         energy: Math.floor(player.energy),
+        hp: Math.floor(player.hp),
+        maxHp: player.maxHp,
+        isDead: player.isDead,
+        target: player.target,
+        targetedTower: player.targetedTower,
+        weapons: player.weapons,
         color: player.color
       },
       landmarks: this.getLandmarks().map(l => ({
@@ -281,9 +880,31 @@ class GameState {
         oil: Math.floor(l.oil),
         maxOil: l.maxOil,
         capturingPlayer: l.capturingPlayer,
-        captureProgress: l.captureProgress
+        captureProgress: l.captureProgress,
+        towers: l.towers
       })),
-      visiblePlayers: this.getVisiblePlayers(playerId)
+      towers: Array.from(this.towers.values()).map(t => ({
+        id: t.id,
+        position: t.position,
+        landmarkId: t.landmarkId,
+        hp: Math.floor(t.hp),
+        maxHp: t.maxHp,
+        isDestroyed: t.isDestroyed,
+        target: t.target
+      })),
+      bases: Array.from(this.bases.values()).map(b => ({
+        id: b.id,
+        team: b.team,
+        position: b.position,
+        hp: Math.floor(b.hp),
+        maxHp: b.maxHp,
+        isDestroyed: b.isDestroyed,
+        target: b.target
+      })),
+      gameOver: this.gameOver,
+      winner: this.winner,
+      visiblePlayers: this.getVisiblePlayers(playerId),
+      projectiles: this.projectiles
     };
   }
 }

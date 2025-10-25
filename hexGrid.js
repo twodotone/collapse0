@@ -5,8 +5,8 @@
  */
 
 class HexGrid {
-  constructor(mapRadius = 25) {
-    // For a 50x50 effective map, we use radius 25 from center
+  constructor(mapRadius = 10) {
+    // For a 20x20 effective map, we use radius 10 from center
     this.mapRadius = mapRadius;
   }
 
