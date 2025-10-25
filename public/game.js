@@ -271,6 +271,11 @@ function hexToPixel(hex) {
     return { x, y };
 }
 
+// Helper function to scale line width with zoom
+function scaledLineWidth(baseWidth) {
+    return Math.max(0.5, baseWidth / camera.zoom);
+}
+
 function pixelToHex(x, y) {
     // Apply camera transform
     x = (x - camera.x) / camera.zoom;
@@ -511,8 +516,9 @@ function drawHexGrid() {
         }
     };
     
+    // Scale line width with zoom
     ctx.strokeStyle = '#2a2a2a';
-    ctx.lineWidth = 1 / camera.zoom;
+    ctx.lineWidth = scaledLineWidth(1);
     
     for (let q = Math.max(-mapRadius, minQ); q <= Math.min(mapRadius, maxQ); q++) {
         for (let r = Math.max(-mapRadius, minR); r <= Math.min(mapRadius, maxR); r++) {
@@ -651,7 +657,7 @@ function drawPlayer(player, isCurrentPlayer) {
     
     // Draw outline
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = scaledLineWidth(2);
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, HEX_SIZE * 0.5, 0, Math.PI * 2);
     ctx.stroke();
@@ -683,14 +689,14 @@ function drawDestination(destination) {
     
     // Draw destination marker
     ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = scaledLineWidth(3);
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, HEX_SIZE * 0.6, 0, Math.PI * 2);
     ctx.stroke();
     
     // Draw X
     ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = scaledLineWidth(2);
     const size = HEX_SIZE * 0.3;
     ctx.beginPath();
     ctx.moveTo(pos.x - size, pos.y - size);
@@ -711,7 +717,7 @@ function drawTower(tower) {
     if (isTargeted) {
         // Draw targeting circle
         ctx.strokeStyle = '#ffff00';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = scaledLineWidth(3);
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, HEX_SIZE * 1.2, 0, Math.PI * 2);
@@ -734,7 +740,7 @@ function drawTower(tower) {
     
     // Draw outline
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = scaledLineWidth(2);
     ctx.stroke();
     
     // Draw HP bar
@@ -744,7 +750,7 @@ function drawTower(tower) {
     if (tower.target && gameState.player && tower.target === gameState.player.id) {
         const targetPos = hexToPixel(gameState.player.position);
         ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = scaledLineWidth(2);
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
@@ -767,7 +773,7 @@ function drawBase(base) {
     if (isTargeted) {
         // Draw targeting circle
         ctx.strokeStyle = '#ffff00';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = scaledLineWidth(3);
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, HEX_SIZE * 1.5, 0, Math.PI * 2);
@@ -785,7 +791,7 @@ function drawBase(base) {
     
     // Draw outline
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = scaledLineWidth(3);
     ctx.strokeRect(pos.x - size/2, pos.y - size/2, size, size);
     
     // Draw team symbol in center
@@ -805,7 +811,7 @@ function drawBase(base) {
         if (targetPlayer) {
             const targetPos = hexToPixel(targetPlayer.position);
             ctx.strokeStyle = `rgba(${base.team === 'green' ? '0, 255, 0' : '78, 205, 196'}, 0.3)`;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = scaledLineWidth(2);
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
             ctx.moveTo(pos.x, pos.y);
@@ -878,7 +884,7 @@ function drawHPBar(pos, hp, maxHp, width) {
     
     // Border
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = scaledLineWidth(1);
     ctx.strokeRect(barX, barY, width, barHeight);
 }
 
