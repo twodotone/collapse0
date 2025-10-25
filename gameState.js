@@ -20,6 +20,10 @@ class GameState {
     this.gameOver = false;
     this.winner = null;
     
+    // Fixed timestep tracking
+    this.gameTick = 0; // Current game tick number
+    this.tickDeltaMs = GameConfig.updates.gameLoopTick; // Milliseconds per tick (50ms = 20 ticks/sec)
+    
     this.config = GameConfig;
     
     this.initializeBases();
@@ -50,7 +54,7 @@ class GameState {
       attackSpeed: baseCfg.attackSpeed,
       visionRange: baseCfg.visionRange,
       target: null,
-      lastAttackTime: 0,
+      lastAttackTick: 0,
       isDestroyed: false
     };
     this.bases.set(greenBase.id, greenBase);
@@ -71,7 +75,7 @@ class GameState {
       attackSpeed: baseCfg.attackSpeed,
       visionRange: baseCfg.visionRange,
       target: null,
-      lastAttackTime: 0,
+      lastAttackTick: 0,
       isDestroyed: false
     };
     this.bases.set(blueBase.id, blueBase);
@@ -171,7 +175,7 @@ class GameState {
         attackSpeed: cfg.attackSpeed,
         visionRange: cfg.visionRange,
         target: null,
-        lastAttackTime: 0,
+        lastAttackTick: 0,
         isDestroyed: false
       };
       
@@ -212,20 +216,20 @@ class GameState {
       lastAttackTime: 0,
       isDead: false,
       respawnTime: 0,
+      respawnTick: 0, // Game tick when player can respawn
       weapons: {
         laser: {
           available: true,
-          lastFired: 0,
+          lastFiredTick: 0,
           cooldownRemaining: 0
         },
         lrm: {
           available: true,
-          lastFired: 0,
+          lastFiredTick: 0,
           cooldownRemaining: 0
         }
       },
-      color: this.getTeamColor(team),
-      lastUpdate: Date.now()
+      color: this.getTeamColor(team)
     };
     
     this.players.set(playerId, player);
@@ -372,11 +376,11 @@ class GameState {
       }
     }
     
-    // Start cooldown
-    const now = Date.now();
+    // Start cooldown (convert seconds to ticks: cooldown_seconds * 1000ms / tickDeltaMs)
+    const cooldownTicks = Math.ceil((laserConfig.cooldown * 1000) / this.tickDeltaMs);
     player.weapons.laser.available = false;
-    player.weapons.laser.lastFired = now;
-    player.weapons.laser.cooldownRemaining = laserConfig.cooldown * 1000; // Convert to ms
+    player.weapons.laser.lastFiredTick = this.gameTick;
+    player.weapons.laser.cooldownRemaining = laserConfig.cooldown * 1000; // For client display
     
     return { success: true, message: 'Laser fired!' };
   }
@@ -447,11 +451,11 @@ class GameState {
       }
     }
     
-    // Start cooldown
-    const now = Date.now();
+    // Start cooldown (convert seconds to ticks)
+    const cooldownTicks = Math.ceil((lrmConfig.cooldown * 1000) / this.tickDeltaMs);
     player.weapons.lrm.available = false;
-    player.weapons.lrm.lastFired = now;
-    player.weapons.lrm.cooldownRemaining = lrmConfig.cooldown * 1000; // Convert to ms
+    player.weapons.lrm.lastFiredTick = this.gameTick;
+    player.weapons.lrm.cooldownRemaining = lrmConfig.cooldown * 1000; // For client display
     
     return { success: true, message: 'LRM fired!' };
   }
@@ -508,7 +512,7 @@ class GameState {
       attackSpeed: towerCfg.attackSpeed,
       visionRange: towerCfg.visionRange,
       target: null,
-      lastAttackTime: 0,
+      lastAttackTick: 0,
       isDestroyed: false,
       team: player.team, // Player-built towers belong to team
       builtBy: player.username
@@ -599,12 +603,12 @@ class GameState {
   }
 
   /**
-   * Main game loop - runs every 100ms
+   * Main game loop - fixed timestep at 50ms (20 ticks/second)
    */
   startGameLoop() {
     setInterval(() => {
-      const now = Date.now();
-      const deltaTime = this.config.updates.gameLoopTick;
+      this.gameTick++;
+      const deltaTime = this.tickDeltaMs;
       
       // Update all players
       for (const player of this.players.values()) {
@@ -638,7 +642,7 @@ class GameState {
       
       // Update projectiles
       this.updateProjectiles(deltaTime);
-    }, this.config.updates.gameLoopTick);
+    }, this.tickDeltaMs);
   }
 
   /**
@@ -717,29 +721,35 @@ class GameState {
   }
 
   /**
-   * Update player combat - auto-target and shoot at towers
+   * Update player combat - only update weapon cooldowns (manual firing)
    */
   updatePlayerCombat(player, deltaTime) {
-    const now = Date.now();
-    
-    // Update weapon cooldowns
+    // Update weapon cooldowns based on ticks
     if (!player.weapons.laser.available) {
+      const ticksSinceFired = this.gameTick - player.weapons.laser.lastFiredTick;
+      const ticksNeeded = Math.ceil((this.config.weapons.laser.cooldown * 1000) / this.tickDeltaMs);
+      
       player.weapons.laser.cooldownRemaining = Math.max(0, 
-        this.config.weapons.laser.cooldown * 1000 - (now - player.weapons.laser.lastFired)
+        this.config.weapons.laser.cooldown * 1000 - (ticksSinceFired * this.tickDeltaMs)
       );
       
-      if (player.weapons.laser.cooldownRemaining === 0) {
+      if (ticksSinceFired >= ticksNeeded) {
         player.weapons.laser.available = true;
+        player.weapons.laser.cooldownRemaining = 0;
       }
     }
     
     if (!player.weapons.lrm.available) {
+      const ticksSinceFired = this.gameTick - player.weapons.lrm.lastFiredTick;
+      const ticksNeeded = Math.ceil((this.config.weapons.lrm.cooldown * 1000) / this.tickDeltaMs);
+      
       player.weapons.lrm.cooldownRemaining = Math.max(0, 
-        this.config.weapons.lrm.cooldown * 1000 - (now - player.weapons.lrm.lastFired)
+        this.config.weapons.lrm.cooldown * 1000 - (ticksSinceFired * this.tickDeltaMs)
       );
       
-      if (player.weapons.lrm.cooldownRemaining === 0) {
+      if (ticksSinceFired >= ticksNeeded) {
         player.weapons.lrm.available = true;
+        player.weapons.lrm.cooldownRemaining = 0;
       }
     }
   }
@@ -785,8 +795,6 @@ class GameState {
    * Update base combat - auto-target and shoot at enemy players
    */
   updateBaseCombat(base, deltaTime) {
-    const now = Date.now();
-    
     // Find enemy players in range
     let closestEnemy = null;
     let closestDistance = Infinity;
@@ -803,14 +811,14 @@ class GameState {
     
     base.target = closestEnemy ? closestEnemy.id : null;
     
-    // Attack if we have a target
+    // Attack if we have a target (tick-based cooldown)
     if (closestEnemy) {
-      const timeSinceLastAttack = now - base.lastAttackTime;
-      const attackCooldown = (1 / base.attackSpeed) * this.config.time.scale;
+      const ticksSinceLastAttack = this.gameTick - base.lastAttackTick;
+      const attackCooldownTicks = Math.ceil(((1 / base.attackSpeed) * this.config.time.scale) / this.tickDeltaMs);
       
-      if (timeSinceLastAttack >= attackCooldown) {
+      if (ticksSinceLastAttack >= attackCooldownTicks) {
         this.baseAttackPlayer(base, closestEnemy);
-        base.lastAttackTime = now;
+        base.lastAttackTick = this.gameTick;
       }
     }
   }
@@ -830,7 +838,11 @@ class GameState {
       player.hp = 0;
       player.destination = null;
       player.path = [];
-      player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
+      
+      // Calculate respawn time in ticks
+      const respawnDelayMs = this.config.player.respawnTime * this.config.time.scale;
+      player.respawnTick = this.gameTick + Math.ceil(respawnDelayMs / this.tickDeltaMs);
+      
       console.log(`${player.username} was killed by ${base.team} base`);
     }
   }
@@ -839,8 +851,6 @@ class GameState {
    * Update tower combat - auto-target and shoot at players
    */
   updateTowerCombat(tower, deltaTime) {
-    const now = Date.now();
-    
     // Find players in range
     let closestPlayer = null;
     let closestDistance = Infinity;
@@ -867,14 +877,14 @@ class GameState {
     
     tower.target = closestPlayer ? closestPlayer.id : null;
     
-    // Attack if we have a target
+    // Attack if we have a target (tick-based cooldown)
     if (closestPlayer) {
-      const timeSinceLastAttack = now - tower.lastAttackTime;
-      const attackCooldown = (1 / tower.attackSpeed) * this.config.time.scale;
+      const ticksSinceLastAttack = this.gameTick - tower.lastAttackTick;
+      const attackCooldownTicks = Math.ceil(((1 / tower.attackSpeed) * this.config.time.scale) / this.tickDeltaMs);
       
-      if (timeSinceLastAttack >= attackCooldown) {
+      if (ticksSinceLastAttack >= attackCooldownTicks) {
         this.towerAttackPlayer(tower, closestPlayer);
-        tower.lastAttackTime = now;
+        tower.lastAttackTick = this.gameTick;
       }
     }
   }
@@ -895,9 +905,12 @@ class GameState {
     if (player.hp <= 0) {
       player.isDead = true;
       player.hp = 0;
-      player.respawnTime = Date.now() + (this.config.player.respawnTime * this.config.time.scale);
       player.destination = null;
       player.path = [];
+      
+      // Calculate respawn time in ticks
+      const respawnDelayMs = this.config.player.respawnTime * this.config.time.scale;
+      player.respawnTick = this.gameTick + Math.ceil(respawnDelayMs / this.tickDeltaMs);
       
       const towerType = tower.team ? `${tower.team} tower ${tower.id}` : `neutral tower ${tower.id}`;
       console.log(`${player.username} was killed by ${towerType}`);
@@ -908,9 +921,7 @@ class GameState {
    * Handle player respawn
    */
   updatePlayerRespawn(player, deltaTime) {
-    const now = Date.now();
-    
-    if (now >= player.respawnTime) {
+    if (this.gameTick >= player.respawnTick) {
       player.isDead = false;
       player.hp = player.maxHp;
       // Respawn in team's starting zone
@@ -932,8 +943,8 @@ class GameState {
       to: { ...to },
       color: color,
       isLRM: isLRM,
-      createdAt: Date.now(),
-      lifetime: isLRM ? 800 : 300 // LRMs travel slower/longer
+      createdAtTick: this.gameTick,
+      lifetime: isLRM ? 800 : 300 // LRMs travel slower/longer (in ms)
     });
   }
 
@@ -941,8 +952,12 @@ class GameState {
    * Update and clean up projectiles
    */
   updateProjectiles(deltaTime) {
-    const now = Date.now();
-    this.projectiles = this.projectiles.filter(p => now - p.createdAt < p.lifetime);
+    // Remove projectiles that have exceeded their lifetime (tick-based)
+    this.projectiles = this.projectiles.filter(p => {
+      const ticksAlive = this.gameTick - p.createdAtTick;
+      const msAlive = ticksAlive * this.tickDeltaMs;
+      return msAlive < p.lifetime;
+    });
   }
 
   /**
@@ -999,7 +1014,8 @@ class GameState {
         hp: Math.floor(t.hp),
         maxHp: t.maxHp,
         isDestroyed: t.isDestroyed,
-        target: t.target
+        target: t.target,
+        team: t.team // Include team for rendering
       })),
       bases: Array.from(this.bases.values()).map(b => ({
         id: b.id,
@@ -1013,7 +1029,10 @@ class GameState {
       gameOver: this.gameOver,
       winner: this.winner,
       visiblePlayers: this.getVisiblePlayers(playerId),
-      projectiles: this.projectiles
+      projectiles: this.projectiles.map(p => ({
+        ...p,
+        createdAt: Date.now() - ((this.gameTick - p.createdAtTick) * this.tickDeltaMs) // Convert tick to timestamp for client
+      }))
     };
   }
 
