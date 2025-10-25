@@ -120,13 +120,15 @@ setInterval(() => {
   }
 }, gameState.config.updates.clientBroadcast); // Use config value
 
-// Start server
-server.listen(PORT, () => {
+// Start server - bind to 0.0.0.0 for Render compatibility
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
   console.log(`
   ╔════════════════════════════════════════╗
   ║      COLLAPSE 0 - Server Running       ║
   ╠════════════════════════════════════════╣
   ║  Port: ${PORT}                            ║
+  ║  Host: ${HOST}                         ║
   ║  Mode: BASE ASSAULT                    ║
   ║  Oil Rigs: 1 (center, 3 towers)        ║
   ║  Win: Destroy enemy base (20 HP)       ║
