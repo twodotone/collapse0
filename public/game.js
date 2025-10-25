@@ -518,6 +518,16 @@ function handleRightClick(e) {
     const mouseY = e.clientY - rect.top;
     const hex = pixelToHex(mouseX, mouseY);
     
+    // Check if clicked on a player (visible players or self)
+    const allPlayers = [gameState.player, ...(gameState.visiblePlayers || [])];
+    for (const player of allPlayers) {
+        if (player && player.position.q === hex.q && player.position.r === hex.r && !player.isDead) {
+            console.log('Targeted player:', player.username);
+            socket.emit('targetPlayer', player.id);
+            return;
+        }
+    }
+    
     // Check if clicked on a tower
     if (gameState.towers) {
         for (const tower of gameState.towers) {
@@ -547,6 +557,7 @@ function handleRightClick(e) {
     
     // Clear target if clicked elsewhere
     socket.emit('targetTower', null);
+    socket.emit('targetPlayer', null);
 }
 
 function handleKeyDown(e) {
@@ -806,14 +817,36 @@ function drawPlayer(player, isCurrentPlayer) {
     // Don't draw dead players
     if (player.isDead) return;
     
+    // Check if this player is targeted
+    const isTargeted = gameState.player && gameState.player.targetedPlayer === player.id;
+    
+    // Draw targeting circle
+    if (isTargeted) {
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = scaledLineWidth(3);
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, HEX_SIZE * 1.2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    
     // Draw glow for current player
     if (isCurrentPlayer) {
         ctx.shadowBlur = 15;
         ctx.shadowColor = '#00ff00';
     }
     
+    // Determine player color based on team
+    let playerColor = player.color;
+    if (player.team === 'green') {
+        playerColor = '#00ff00';
+    } else if (player.team === 'blue') {
+        playerColor = '#4ECDC4';
+    }
+    
     // Draw player dot
-    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : player.color;
+    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : playerColor;
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, HEX_SIZE * 0.5, 0, Math.PI * 2);
     ctx.fill();
@@ -834,7 +867,7 @@ function drawPlayer(player, isCurrentPlayer) {
     drawHPBar(pos, hp, maxHp, HEX_SIZE * 1.5);
     
     // Draw player name
-    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : player.color;
+    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : playerColor;
     ctx.font = `bold ${Math.floor(HEX_SIZE * 0.5)}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
@@ -846,7 +879,7 @@ function drawPlayer(player, isCurrentPlayer) {
     ctx.fillRect(pos.x - textMetrics.width / 2 - 2, textY - 2, textMetrics.width + 4, HEX_SIZE * 0.5 + 4);
     
     // Draw text
-    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : player.color;
+    ctx.fillStyle = isCurrentPlayer ? '#00ff00' : playerColor;
     ctx.fillText(player.username, pos.x, textY);
 }
 

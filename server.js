@@ -60,6 +60,11 @@ io.on('connection', (socket) => {
     gameState.setPlayerTarget(socket.id, towerId);
   });
 
+  // Handle player targeting
+  socket.on('targetPlayer', (targetPlayerId) => {
+    gameState.setPlayerTargetPlayer(socket.id, targetPlayerId);
+  });
+
   // Handle laser firing
   socket.on('fireLaser', () => {
     const result = gameState.fireLaser(socket.id);

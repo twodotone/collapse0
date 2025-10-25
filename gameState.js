@@ -213,6 +213,7 @@ class GameState {
       visionRange: cfg.visionRange,
       target: null,
       targetedTower: null, // Manually selected tower target
+      targetedPlayer: null, // Manually selected player target for PvP
       lastAttackTime: 0,
       isDead: false,
       respawnTime: 0,
@@ -311,7 +312,18 @@ class GameState {
   }
 
   /**
-   * Fire laser at targeted structure
+   * Set player's targeted player (for PvP)
+   */
+  setPlayerTargetPlayer(playerId, targetPlayerId) {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    
+    player.targetedPlayer = targetPlayerId;
+    return true;
+  }
+
+  /**
+   * Fire laser at targeted structure or player
    */
   fireLaser(playerId) {
     const player = this.players.get(playerId);
@@ -324,14 +336,59 @@ class GameState {
       return { success: false, message: 'Laser on cooldown' };
     }
     
-    // Check if player has a target (tower or base)
-    if (!player.targetedTower) {
+    // Check if player has a target (player, tower, or base)
+    if (!player.targetedTower && !player.targetedPlayer) {
       return { success: false, message: 'No target selected' };
     }
     
+    let target = null;
+    let targetType = null;
+    
+    // First check if targeting a player
+    if (player.targetedPlayer) {
+      target = this.players.get(player.targetedPlayer);
+      targetType = 'player';
+      
+      if (!target || target.isDead) {
+        player.targetedPlayer = null;
+        return { success: false, message: 'Target player not found or dead' };
+      }
+      
+      // Check range
+      const distance = this.hexGrid.distance(player.position, target.position);
+      if (distance > laserConfig.range) {
+        return { success: false, message: 'Target out of range' };
+      }
+      
+      // Fire laser at player!
+      target.hp -= laserConfig.damage;
+      this.createProjectile(player.position, target.position, player.color, false);
+      
+      if (target.hp <= 0) {
+        target.isDead = true;
+        target.hp = 0;
+        target.destination = null;
+        target.path = [];
+        
+        const respawnDelayMs = this.config.player.respawnTime * this.config.time.scale;
+        target.respawnTick = this.gameTick + Math.ceil(respawnDelayMs / this.tickDeltaMs);
+        
+        console.log(`${target.username} was killed by ${player.username}'s Laser`);
+        player.targetedPlayer = null;
+      }
+      
+      // Start cooldown
+      const cooldownTicks = Math.ceil((laserConfig.cooldown * 1000) / this.tickDeltaMs);
+      player.weapons.laser.available = false;
+      player.weapons.laser.lastFiredTick = this.gameTick;
+      player.weapons.laser.cooldownRemaining = laserConfig.cooldown * 1000;
+      
+      return { success: true, message: 'Laser fired!' };
+    }
+    
     // Check if target is a tower
-    let target = this.towers.get(player.targetedTower);
-    let targetType = 'tower';
+    target = this.towers.get(player.targetedTower);
+    targetType = 'tower';
     
     // If not a tower, check if it's a base
     if (!target || target.isDestroyed) {
@@ -386,7 +443,7 @@ class GameState {
   }
 
   /**
-   * Fire LRM at targeted tower
+   * Fire LRM at targeted structure or player
    */
   fireLRM(playerId) {
     const player = this.players.get(playerId);
@@ -399,14 +456,59 @@ class GameState {
       return { success: false, message: 'LRM on cooldown' };
     }
     
-    // Check if player has a target (tower or base)
-    if (!player.targetedTower) {
+    // Check if player has a target (player, tower, or base)
+    if (!player.targetedTower && !player.targetedPlayer) {
       return { success: false, message: 'No target selected' };
     }
     
+    let target = null;
+    let targetType = null;
+    
+    // First check if targeting a player
+    if (player.targetedPlayer) {
+      target = this.players.get(player.targetedPlayer);
+      targetType = 'player';
+      
+      if (!target || target.isDead) {
+        player.targetedPlayer = null;
+        return { success: false, message: 'Target player not found or dead' };
+      }
+      
+      // Check range
+      const distance = this.hexGrid.distance(player.position, target.position);
+      if (distance > lrmConfig.range) {
+        return { success: false, message: 'Target out of range' };
+      }
+      
+      // Fire LRM at player!
+      target.hp -= lrmConfig.damage;
+      this.createProjectile(player.position, target.position, '#ffff00', true);
+      
+      if (target.hp <= 0) {
+        target.isDead = true;
+        target.hp = 0;
+        target.destination = null;
+        target.path = [];
+        
+        const respawnDelayMs = this.config.player.respawnTime * this.config.time.scale;
+        target.respawnTick = this.gameTick + Math.ceil(respawnDelayMs / this.tickDeltaMs);
+        
+        console.log(`${target.username} was killed by ${player.username}'s LRM`);
+        player.targetedPlayer = null;
+      }
+      
+      // Start cooldown
+      const cooldownTicks = Math.ceil((lrmConfig.cooldown * 1000) / this.tickDeltaMs);
+      player.weapons.lrm.available = false;
+      player.weapons.lrm.lastFiredTick = this.gameTick;
+      player.weapons.lrm.cooldownRemaining = lrmConfig.cooldown * 1000;
+      
+      return { success: true, message: 'LRM fired!' };
+    }
+    
     // Check if target is a tower
-    let target = this.towers.get(player.targetedTower);
-    let targetType = 'tower';
+    target = this.towers.get(player.targetedTower);
+    targetType = 'tower';
     
     // If not a tower, check if it's a base
     if (!target || target.isDestroyed) {
@@ -568,6 +670,7 @@ class GameState {
         allPlayers.push({
           id: otherPlayer.id,
           username: otherPlayer.username,
+          team: otherPlayer.team,
           position: otherPlayer.position,
           color: otherPlayer.color,
           hp: otherPlayer.hp,
@@ -590,6 +693,7 @@ class GameState {
         visiblePlayers.push({
           id: otherPlayer.id,
           username: otherPlayer.username,
+          team: otherPlayer.team,
           position: otherPlayer.position,
           color: otherPlayer.color,
           hp: otherPlayer.hp,
@@ -995,6 +1099,7 @@ class GameState {
         isDead: player.isDead,
         target: player.target,
         targetedTower: player.targetedTower,
+        targetedPlayer: player.targetedPlayer,
         weapons: player.weapons,
         color: player.color
       },
